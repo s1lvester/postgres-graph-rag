@@ -1,4 +1,4 @@
-# Postgres Graph RAG (The Lean MVP)
+# Postgres Graph RAG
 
 A high-performance, Postgres-native GraphRAG library using a migration-safe "Forever Schema". No complex orchestration frameworks—just pure Python and SQL.
 
