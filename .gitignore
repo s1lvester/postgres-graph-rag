@@ -1,1 +1,3 @@
 .env
+postgres_graph_rag/__pycache__/**/*.pyc
+
