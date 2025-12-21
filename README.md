@@ -1,10 +1,27 @@
-# Postgres Graph RAG
+# Postgres Graph RAG 🐘🕸️
 
-A high-performance, Postgres-native GraphRAG library using a migration-safe "Forever Schema". No complex orchestration frameworks—just pure Python and SQL.
+### High-Precision GraphRAG. Native to PostgreSQL.
+
+Most RAG systems are "Flatlanders." They use vector similarity to find related text, but they are fundamentally blind to **relationships**. If you ask your RAG "How is Person A connected to Project B through their shared dependencies?", standard vector search fails because the answer isn't in a single chunk—it’s in the **links** between them.
+
+**Postgres Graph RAG** bridges this "Reasoning Gap" by turning your existing PostgreSQL database into a structured knowledge engine. 
+
+### Why this exists:
+1.  **Infrastructure Nightmare:** Building "Smart RAG" usually means adding a Graph DB (Neo4j) to your stack. Now you have a distributed systems nightmare: keeping your Relational DB, Vector DB, and Graph DB in sync.
+2.  **Flatland Problem:** Vector similarity is just probabilistic matching. It doesn't understand hierarchy, causality, or directed relationships (e.g., "A leads B" vs "B leads A").
+3.  **Batch Bottleneck:** Existing GraphRAG research (like Microsoft's) is batch-heavy and token-expensive. It can't handle real-time, incremental updates.
+
+### Postgres-Native Solution:
+This library is built for **Postgres Maximalists**. It leverages the engine you already trust to do the heavy lifting:
+*   **Recursive Retrieval:** Instead of expensive LLM-agent loops, we use **SQL Recursive CTEs** to perform multi-hop reasoning. It’s deterministic, 10x faster, and handles "neighbor-of-neighbor" walks natively.
+*   **Atomic Consistency:** Vectors, nodes, and relationships live in one ACID-compliant engine. One transaction. Zero sync lag.
+*   **Forever Schema:** Using `JSONB` metadata and a namespaced design, the schema is migration-proof. You can evolve your graph's logic without ever running `ALTER TABLE`.
+
+---
 
 ## Core Philosophy
 - **Infrastructure:** Postgres is the only database (via `pgvector`).
-- **Intelligence:** Hosted SLMs (GPT-5.2 or Gemini 2.5) for extraction.
+- **Intelligence:** Hosted SLMs (**GPT-5.2** or **Gemini 2.5**) for extraction. Freely configurable.
 - **Simplicity:** Native Async Python + SQL.
 - **Scalability:** High-performance connection pooling and namespace-aware design (Multi-tenancy).
 
