@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Dict, Any, Optional, Union, Callable
 import pandas as pd
 from .database import DatabaseManager
@@ -68,7 +69,7 @@ class PostgresGraphRAG:
         self,
         texts: Union[str, List[str]],
         namespace: str = "default",
-        metadata: Dict[str, Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         """Ingests one or more texts into a specific namespace."""
         if isinstance(texts, str):
@@ -77,33 +78,62 @@ class PostgresGraphRAG:
         for text in texts:
             chunks = self.chunker(text)
             for chunk in chunks:
+                # 1. Extraction (per chunk)
                 triplets = await self.extractor.extract_triplets(chunk)
-                for triplet in triplets:
-                    sub_emb = await self.extractor.get_embedding(
-                        triplet.subject
+                if not triplets:
+                    continue
+
+                # 2. Collect unique entities in this chunk
+                entities = set()
+                for t in triplets:
+                    entities.add(t.subject)
+                    entities.add(t.object)
+
+                # 3. Parallel Embedding Retrieval
+                entity_list = list(entities)
+                embedding_tasks = [
+                    self.extractor.get_embedding(e) for e in entity_list
+                ]
+                embeddings = await asyncio.gather(*embedding_tasks)
+                entity_to_emb = dict(zip(entity_list, embeddings))
+
+                # 4. Batch DB Write
+                await self.db._init_pool()
+                async with self.db.pool.connection() as conn:
+                    # Prepare nodes for batch upsert
+                    nodes_data = [
+                        {
+                            "content": entity,
+                            "embedding": entity_to_emb[entity],
+                            "metadata": metadata,
+                        }
+                        for entity in entity_list
+                    ]
+
+                    # Upsert nodes and get their IDs
+                    node_ids_list = await self.db.upsert_nodes_batch(
+                        nodes_data, namespace=namespace, connection=conn
                     )
-                    sub_id = await self.db.upsert_node(
-                        triplet.subject,
-                        sub_emb,
-                        namespace=namespace,
-                        metadata=metadata,
+                    content_to_id = dict(zip(entity_list, node_ids_list))
+
+                    # Prepare edges for batch upsert
+                    edges_data = [
+                        {
+                            "source_id": content_to_id[t.subject],
+                            "target_id": content_to_id[t.object],
+                            "relation": t.predicate,
+                            "metadata": metadata,
+                        }
+                        for t in triplets
+                    ]
+
+                    # Upsert edges
+                    await self.db.upsert_edges_batch(
+                        edges_data, namespace=namespace, connection=conn
                     )
 
-                    obj_emb = await self.extractor.get_embedding(triplet.object)
-                    obj_id = await self.db.upsert_node(
-                        triplet.object,
-                        obj_emb,
-                        namespace=namespace,
-                        metadata=metadata,
-                    )
-
-                    await self.db.upsert_edge(
-                        sub_id,
-                        obj_id,
-                        triplet.predicate,
-                        namespace=namespace,
-                        metadata=metadata,
-                    )
+                    # Commit the whole chunk in one transaction
+                    await conn.commit()
 
     async def query(
         self,
@@ -114,13 +144,16 @@ class PostgresGraphRAG:
     ) -> str:
         """Searches the graph and returns enriched context."""
         query_emb = await self.extractor.get_embedding(question)
-        seed_nodes = await self.db.vector_search(
-            query_emb, namespace=namespace, top_k=top_k
-        )
-        seed_ids = [n["id"] for n in seed_nodes]
-        graph_data = await self.db.traverse_graph(
-            seed_ids, namespace=namespace, max_hops=hops
-        )
+
+        await self.db._init_pool()
+        async with self.db.pool.connection() as conn:
+            seed_nodes = await self.db.vector_search(
+                query_emb, namespace=namespace, top_k=top_k, connection=conn
+            )
+            seed_ids = [n["id"] for n in seed_nodes]
+            graph_data = await self.db.traverse_graph(
+                seed_ids, namespace=namespace, max_hops=hops, connection=conn
+            )
         return self._format_context(graph_data)
 
     def _format_context(

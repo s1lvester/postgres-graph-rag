@@ -3,6 +3,7 @@ import pytest
 from postgres_graph_rag import PostgresGraphRAG
 from postgres_graph_rag.models import OPENAI_DEFAULT_CONFIG
 from dotenv import load_dotenv
+from timing_utils import time_it, stats, time_func
 
 load_dotenv()
 
@@ -10,11 +11,41 @@ POSTGRES_URL = os.getenv("POSTGRES_URL")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
+def instrument_rag(rag: PostgresGraphRAG):
+    # Instrument internal components
+    rag.extractor.extract_triplets = time_func("LLM: Extract Triplets")(
+        rag.extractor.extract_triplets
+    )
+    rag.extractor.get_embedding = time_func("LLM: Get Embedding")(
+        rag.extractor.get_embedding
+    )
+
+    rag.db.upsert_node = time_func("DB: Upsert Node")(rag.db.upsert_node)
+    rag.db.upsert_nodes_batch = time_func("DB: Upsert Nodes Batch")(
+        rag.db.upsert_nodes_batch
+    )
+    rag.db.upsert_edge = time_func("DB: Upsert Edge")(rag.db.upsert_edge)
+    rag.db.upsert_edges_batch = time_func("DB: Upsert Edges Batch")(
+        rag.db.upsert_edges_batch
+    )
+    rag.db.vector_search = time_func("DB: Vector Search")(rag.db.vector_search)
+    rag.db.traverse_graph = time_func("DB: Traverse Graph")(
+        rag.db.traverse_graph
+    )
+    rag.db.setup_database = time_func("DB: Setup Schema")(rag.db.setup_database)
+
+
 @pytest.fixture
 def rag_class():
     if not POSTGRES_URL or not OPENAI_API_KEY:
         pytest.skip("POSTGRES_URL or OPENAI_API_KEY not set")
     return PostgresGraphRAG
+
+
+@pytest.fixture(autouse=True)
+def report_timing():
+    yield
+    stats.report()
 
 
 @pytest.mark.asyncio
@@ -29,6 +60,7 @@ async def test_entity_resolution_across_chunks(rag_class):
         openai_api_key=OPENAI_API_KEY,
         config=OPENAI_DEFAULT_CONFIG,
     )
+    instrument_rag(rag)
     try:
         # Clean state
         await rag.db._init_pool()
@@ -38,27 +70,29 @@ async def test_entity_resolution_across_chunks(rag_class):
                 await cur.execute("DROP TABLE IF EXISTS graph_nodes CASCADE")
                 await conn.commit()
 
-        await rag.setup()
+        async with time_it("Scenario: Entity Resolution"):
+            await rag.setup()
 
-        # 1. Ingest first fact
-        await rag.add_texts(
-            "Apple Inc. is a technology company.", namespace="res-test"
-        )
+            # 1. Ingest first fact
+            await rag.add_texts(
+                "Apple Inc. is a technology company.", namespace="res-test"
+            )
 
-        # 2. Ingest second fact mentioning the same entity
-        await rag.add_texts(
-            "Apple Inc. is headquartered in Cupertino.", namespace="res-test"
-        )
+            # 2. Ingest second fact mentioning the same entity
+            await rag.add_texts(
+                "Apple Inc. is headquartered in Cupertino.",
+                namespace="res-test",
+            )
 
-        # 3. Verify database state
-        async with rag.db.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT count(*) FROM graph_nodes WHERE namespace = 'res-test'"
-                )
-                row = await cur.fetchone()
-                node_count = row["count"]
-                assert node_count <= 3
+            # 3. Verify database state
+            async with rag.db.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "SELECT count(*) FROM graph_nodes WHERE namespace = 'res-test'"
+                    )
+                    row = await cur.fetchone()
+                    node_count = row["count"]
+                    assert node_count <= 3
     finally:
         await rag.close()
 
@@ -75,27 +109,31 @@ async def test_deep_path_traversal(rag_class):
         openai_api_key=OPENAI_API_KEY,
         config=OPENAI_DEFAULT_CONFIG,
     )
+    instrument_rag(rag)
     try:
-        await rag.setup()
-        # Building a chain: A -> B -> C -> D
-        await rag.add_texts(
-            "Johny Srouji leads the Hardware Team.", namespace="path-test"
-        )
-        await rag.add_texts(
-            "The Hardware Team designed the M4 Chip.", namespace="path-test"
-        )
-        await rag.add_texts(
-            "The M4 Chip uses ARM Architecture.", namespace="path-test"
-        )
+        async with time_it("Scenario: Deep Path Traversal"):
+            await rag.setup()
+            # Building a chain: A -> B -> C -> D
+            await rag.add_texts(
+                "Johny Srouji leads the Hardware Team.", namespace="path-test"
+            )
+            await rag.add_texts(
+                "The Hardware Team designed the M4 Chip.", namespace="path-test"
+            )
+            await rag.add_texts(
+                "The M4 Chip uses ARM Architecture.", namespace="path-test"
+            )
 
-        # Querying the start of the chain with 3 hops should reach the end
-        context = await rag.query(
-            "Tell me about Johny Srouji's work", namespace="path-test", hops=3
-        )
+            # Querying the start of the chain with 3 hops should reach the end
+            context = await rag.query(
+                "Tell me about Johny Srouji's work",
+                namespace="path-test",
+                hops=3,
+            )
 
-        assert "Johny Srouji" in context
-        assert "M4" in context
-        assert "ARM" in context
+            assert "Johny Srouji" in context
+            assert "M4" in context
+            assert "ARM" in context
     finally:
         await rag.close()
 
@@ -112,31 +150,33 @@ async def test_strict_namespace_isolation(rag_class):
         openai_api_key=OPENAI_API_KEY,
         config=OPENAI_DEFAULT_CONFIG,
     )
+    instrument_rag(rag)
     try:
-        await rag.setup()
-        # Fact for Namespace A
-        await rag.add_texts(
-            "The secret code is 12345.", namespace="internal-vault"
-        )
+        async with time_it("Scenario: Namespace Isolation"):
+            await rag.setup()
+            # Fact for Namespace A
+            await rag.add_texts(
+                "The secret code is 12345.", namespace="internal-vault"
+            )
 
-        # Fact for Namespace B
-        await rag.add_texts(
-            "The secret code is 99999.", namespace="guest-vault"
-        )
+            # Fact for Namespace B
+            await rag.add_texts(
+                "The secret code is 99999.", namespace="guest-vault"
+            )
 
-        # Querying Namespace A should NOT see facts from B
-        context_a = await rag.query(
-            "What is the secret code?", namespace="internal-vault"
-        )
-        assert "12345" in context_a
-        assert "99999" not in context_a
+            # Querying Namespace A should NOT see facts from B
+            context_a = await rag.query(
+                "What is the secret code?", namespace="internal-vault"
+            )
+            assert "12345" in context_a
+            assert "99999" not in context_a
 
-        # Querying Namespace B should NOT see facts from A
-        context_b = await rag.query(
-            "What is the secret code?", namespace="guest-vault"
-        )
-        assert "99999" in context_b
-        assert "12345" not in context_b
+            # Querying Namespace B should NOT see facts from A
+            context_b = await rag.query(
+                "What is the secret code?", namespace="guest-vault"
+            )
+            assert "99999" in context_b
+            assert "12345" not in context_b
     finally:
         await rag.close()
 
@@ -153,32 +193,66 @@ async def test_metadata_integrity_via_jsonb_merge(rag_class):
         openai_api_key=OPENAI_API_KEY,
         config=OPENAI_DEFAULT_CONFIG,
     )
+    instrument_rag(rag)
+    try:
+        async with time_it("Scenario: Metadata Integrity"):
+            await rag.setup()
+            # 1. First ingestion with custom metadata
+            await rag.add_texts(
+                "London is a city.",
+                namespace="meta-test",
+                metadata={"source": "book_1"},
+            )
+
+            # 2. Second ingestion for the same fact with different source
+            await rag.add_texts(
+                "London is a city.",
+                namespace="meta-test",
+                metadata={"quality": "high"},
+            )
+
+            # 3. Check if both fields exist in the database
+            async with rag.db.pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "SELECT metadata FROM graph_nodes WHERE content ILIKE '%London%' AND namespace = 'meta-test'"
+                    )
+                    row = await cur.fetchone()
+                    metadata = row["metadata"]
+
+                    assert metadata.get("source") == "book_1"
+                    assert metadata.get("quality") == "high"
+    finally:
+        await rag.close()
+
+
+@pytest.mark.asyncio
+async def test_bidirectional_context(rag_class):
+    """
+    Test Case: Bidirectional Context
+    Goal: Verify that the graph traversal finds entities regardless of whether
+    they are the source or target of a relationship.
+    """
+    rag = rag_class(
+        postgres_url=POSTGRES_URL,
+        openai_api_key=OPENAI_API_KEY,
+        config=OPENAI_DEFAULT_CONFIG,
+    )
+    instrument_rag(rag)
     try:
         await rag.setup()
-        # 1. First ingestion with custom metadata
-        await rag.add_texts(
-            "London is a city.",
-            namespace="meta-test",
-            metadata={"source": "book_1"},
+        # "Steve Jobs" is source, "Apple" is target
+        await rag.add_texts("Steve Jobs founded Apple.", namespace="bidir-test")
+
+        # Query for the target "Apple"
+        context = await rag.query(
+            "Tell me about Apple",
+            namespace="bidir-test",
+            hops=1,
         )
 
-        # 2. Second ingestion for the same fact with different source
-        await rag.add_texts(
-            "London is a city.",
-            namespace="meta-test",
-            metadata={"quality": "high"},
-        )
-
-        # 3. Check if both fields exist in the database
-        async with rag.db.pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT metadata FROM graph_nodes WHERE content ILIKE '%London%' AND namespace = 'meta-test'"
-                )
-                row = await cur.fetchone()
-                metadata = row["metadata"]
-
-                assert metadata.get("source") == "book_1"
-                assert metadata.get("quality") == "high"
+        # "Steve Jobs" should be in the context because of the bidirectional join
+        assert "Steve Jobs" in context
+        assert "Apple" in context
     finally:
         await rag.close()
