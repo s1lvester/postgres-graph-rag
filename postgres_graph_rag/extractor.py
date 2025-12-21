@@ -35,26 +35,35 @@ class LLMExtractor:
         self.google_client = None
 
         if openai_api_key:
-            self.openai_client = openai.OpenAI(api_key=openai_api_key)
+            self.openai_client = openai.AsyncOpenAI(api_key=openai_api_key)
         if google_api_key:
-            self.google_client = genai.Client(api_key=google_api_key)
+            # Use the .aio attribute for async operations
+            self.google_client = genai.Client(api_key=google_api_key).aio
 
-    def extract_triplets(self, text: str) -> List[Triplet]:
+    async def extract_triplets(self, text: str) -> List[Triplet]:
+        """Extracts entities and relationships from text using the configured LLM."""
         prompt = (
-            "Extract entities and their relationships from the following text. "
-            "Return a clean list of subject-predicate-object triplets."
+            "You are an expert knowledge graph extractor. Your task is to decompose the given text "
+            "into atomic subject-predicate-object triplets.\n\n"
+            "Guidelines:\n"
+            "1. Entities (Subject/Object): Use proper nouns or specific concepts. Avoid pronouns (he, she, it, they).\n"
+            "2. Predicates: Use short, active verbs or clear relationship terms (e.g., 'works_at', 'developed', 'is_located_in').\n"
+            "3. Atomicity: Each triplet must represent a single, distinct fact.\n"
+            "4. Normalization: Clean up entity names (e.g., 'Apple Inc.' and 'Apple' should be 'Apple').\n"
+            "5. Context: Only extract facts explicitly stated in the text.\n\n"
+            "Return a JSON list of triplets with the keys: 'subject', 'predicate', 'object'."
         )
 
         model = self.config["extraction_model"]
         if "gpt" in model and self.openai_client:
-            return self._extract_openai(text, prompt)
+            return await self._extract_openai(text, prompt)
         elif "gemini" in model and self.google_client:
-            return self._extract_google(text, prompt)
+            return await self._extract_google(text, prompt)
         else:
             raise ValueError(f"Model {model} not supported or API key missing.")
 
-    def _extract_openai(self, text: str, prompt: str) -> List[Triplet]:
-        completion = self.openai_client.beta.chat.completions.parse(
+    async def _extract_openai(self, text: str, prompt: str) -> List[Triplet]:
+        completion = await self.openai_client.beta.chat.completions.parse(
             model=self.config["extraction_model"],
             messages=[
                 {"role": "system", "content": prompt},
@@ -64,8 +73,8 @@ class LLMExtractor:
         )
         return completion.choices[0].message.parsed.triplets
 
-    def _extract_google(self, text: str, prompt: str) -> List[Triplet]:
-        response = self.google_client.models.generate_content(
+    async def _extract_google(self, text: str, prompt: str) -> List[Triplet]:
+        response = await self.google_client.models.generate_content(
             model=self.config["extraction_model"],
             contents=[prompt, text],
             config=types.GenerateContentConfig(
@@ -77,17 +86,17 @@ class LLMExtractor:
             return response.parsed.triplets
         return []
 
-    def get_embedding(self, text: str) -> List[float]:
+    async def get_embedding(self, text: str) -> List[float]:
         model = self.config["embedding_model"]
         if self.openai_client and "text-embedding" in model:
-            response = self.openai_client.embeddings.create(
+            response = await self.openai_client.embeddings.create(
                 input=text, model=model
             )
             return response.data[0].embedding
         elif self.google_client and (
             "text-embedding" in model or "embedding" in model
         ):
-            response = self.google_client.models.embed_content(
+            response = await self.google_client.models.embed_content(
                 model=model, contents=text
             )
             return response.embeddings[0].values

@@ -4,7 +4,7 @@ Version: 0.1.0
 Summary: A lean GraphRAG library using Postgres/pgvector as the sole database
 Author-email: Hagen <hagen@example.com>
 Requires-Python: >=3.10
-Requires-Dist: psycopg[binary]>=3.1.18
+Requires-Dist: psycopg[binary,pool]>=3.1.18
 Requires-Dist: pgvector>=0.2.5
 Requires-Dist: openai>=1.12.0
 Requires-Dist: google-genai>=0.1.0
@@ -14,3 +14,4 @@ Requires-Dist: python-dotenv>=1.0.1
 Provides-Extra: test
 Requires-Dist: pytest>=8.0.0; extra == "test"
 Requires-Dist: pytest-mock>=3.12.0; extra == "test"
+Requires-Dist: pytest-asyncio>=0.23.0; extra == "test"

@@ -1,25 +1,41 @@
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Protocol, Union
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
 
 class DatabaseManager:
     def __init__(self, connection_url: str):
         self.connection_url = connection_url
+        self.pool: Optional[AsyncConnectionPool] = None
 
-    def _get_connection(self):
-        return psycopg.connect(self.connection_url, row_factory=dict_row)
+    async def _init_pool(self):
+        """Lazily initializes the connection pool if it doesn't exist."""
+        if self.pool is None:
+            self.pool = AsyncConnectionPool(
+                self.connection_url,
+                open=False,  # Wait for explicit open
+                kwargs={"row_factory": dict_row},
+            )
+            await self.pool.open()
 
-    def setup_database(self, embedding_dimension: int = 1536):
+    async def close(self):
+        """Closes the connection pool."""
+        if self.pool:
+            await self.pool.close()
+            self.pool = None
+
+    async def setup_database(self, embedding_dimension: int = 1536):
         """Initializes the migration-safe 'Forever Schema'."""
-        with self._get_connection() as conn:
-            with conn.cursor() as cur:
+        await self._init_pool()
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
                 # Enable pgvector extension
-                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                await cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
                 # Create graph_nodes table (The Entities)
-                cur.execute(
+                await cur.execute(
                     f"""
                     CREATE TABLE IF NOT EXISTS graph_nodes (
                         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -33,7 +49,7 @@ class DatabaseManager:
                 )
 
                 # Create graph_edges table (The Relationships)
-                cur.execute(
+                await cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS graph_edges (
                         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -50,25 +66,25 @@ class DatabaseManager:
                 )
 
                 # Indices for fast lookups and namespacing
-                cur.execute(
+                await cur.execute(
                     "CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_nodes_namespace_content ON graph_nodes (namespace, content)"
                 )
-                cur.execute(
+                await cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_graph_nodes_embedding ON graph_nodes USING hnsw (embedding vector_cosine_ops)"
                 )
-                cur.execute(
+                await cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_graph_edges_source ON graph_edges (source_node_id)"
                 )
-                cur.execute(
+                await cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON graph_edges (target_node_id)"
                 )
-                cur.execute(
+                await cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_graph_edges_namespace ON graph_edges (namespace)"
                 )
 
-                conn.commit()
+                await conn.commit()
 
-    def upsert_node(
+    async def upsert_node(
         self,
         content: str,
         embedding: List[float],
@@ -77,9 +93,10 @@ class DatabaseManager:
     ) -> str:
         """Inserts or updates a node within a namespace and returns its ID."""
         metadata = metadata or {}
-        with self._get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
+        await self._init_pool()
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
                     """
                     INSERT INTO graph_nodes (namespace, content, embedding, metadata)
                     VALUES (%s, %s, %s, %s)
@@ -90,11 +107,11 @@ class DatabaseManager:
                 """,
                     (namespace, content, embedding, json.dumps(metadata)),
                 )
-                row = cur.fetchone()
-                conn.commit()
+                row = await cur.fetchone()
+                await conn.commit()
                 return str(row["id"])
 
-    def upsert_edge(
+    async def upsert_edge(
         self,
         source_id: str,
         target_id: str,
@@ -105,9 +122,10 @@ class DatabaseManager:
     ):
         """Inserts or updates an edge within a namespace."""
         metadata = metadata or {}
-        with self._get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
+        await self._init_pool()
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
                     """
                     INSERT INTO graph_edges (namespace, source_node_id, target_node_id, relation, weight, metadata)
                     VALUES (%s, %s, %s, %s, %s, %s)
@@ -124,18 +142,19 @@ class DatabaseManager:
                         json.dumps(metadata),
                     ),
                 )
-                conn.commit()
+                await conn.commit()
 
-    def vector_search(
+    async def vector_search(
         self,
         query_embedding: List[float],
         namespace: str = "default",
         top_k: int = 5,
     ) -> List[Dict[str, Any]]:
         """Finds nodes within a namespace most similar to the query embedding."""
-        with self._get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
+        await self._init_pool()
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
                     """
                     SELECT id, content, metadata, (embedding <=> %s::vector) as distance
                     FROM graph_nodes
@@ -145,9 +164,9 @@ class DatabaseManager:
                 """,
                     (query_embedding, namespace, top_k),
                 )
-                return cur.fetchall()
+                return await cur.fetchall()
 
-    def traverse_graph(
+    async def traverse_graph(
         self,
         seed_node_ids: List[str],
         namespace: str = "default",
@@ -157,9 +176,10 @@ class DatabaseManager:
         if not seed_node_ids:
             return {"nodes": [], "edges": []}
 
-        with self._get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
+        await self._init_pool()
+        async with self.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
                     """
                     WITH RECURSIVE graph_expansion AS (
                         -- Base case: seed nodes
@@ -182,11 +202,11 @@ class DatabaseManager:
                 """,
                     (seed_node_ids, namespace, max_hops, namespace),
                 )
-                nodes = cur.fetchall()
+                nodes = await cur.fetchall()
                 node_ids = [n["id"] for n in nodes]
 
                 if node_ids:
-                    cur.execute(
+                    await cur.execute(
                         """
                         SELECT e.source_node_id, e.target_node_id, e.relation, e.metadata, e.weight,
                                s.content as source_content, t.content as target_content
@@ -199,7 +219,7 @@ class DatabaseManager:
                     """,
                         (node_ids, node_ids, namespace),
                     )
-                    edges = cur.fetchall()
+                    edges = await cur.fetchall()
                 else:
                     edges = []
 
