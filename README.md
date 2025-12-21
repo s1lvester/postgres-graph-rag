@@ -36,7 +36,7 @@ uv sync --extra test
 
 Or using `pip`:
 ```bash
-pip install "postgres-graph-rag[pool]"
+pip install postgres-graph-rag
 ```
 
 ---
