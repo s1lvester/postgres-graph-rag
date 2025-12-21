@@ -1,6 +1,6 @@
 [project]
 name = "postgres-graph-rag"
-version = "0.1.1"
+version = "0.1.0"
 description = "A lean GraphRAG library using Postgres/pgvector as the sole database"
 authors = [
     { name = "Hagen", email = "hagen@example.com" }
