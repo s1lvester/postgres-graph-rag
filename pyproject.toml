@@ -1,0 +1,32 @@
+[project]
+name = "postgres-graph-rag"
+version = "0.1.0"
+description = "A lean GraphRAG library using Postgres/pgvector as the sole database"
+authors = [
+    { name = "Hagen", email = "hagen@example.com" }
+]
+dependencies = [
+    "psycopg[binary]>=3.1.18",
+    "pgvector>=0.2.5",
+    "openai>=1.12.0",
+    "google-genai>=0.1.0",
+    "pandas>=2.2.0",
+    "pydantic>=2.6.0",
+    "python-dotenv>=1.0.1",
+]
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-mock>=3.12.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
