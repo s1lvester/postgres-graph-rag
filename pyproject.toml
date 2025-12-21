@@ -5,9 +5,7 @@ description = "A lean GraphRAG library using Postgres/pgvector as the sole datab
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [
-    { name = "Hagen", email = "hagen@example.com" }
-]
+authors = [{ name = "Hagen", email = "hagen@example.com" }]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -37,6 +35,9 @@ Repository = "https://github.com/h4gen/postgres-graph-rag"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["postgres_graph_rag"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
