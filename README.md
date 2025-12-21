@@ -4,7 +4,7 @@
 
 Most RAG systems are "Flatlanders." They use vector similarity to find related text, but they are fundamentally blind to **relationships**. If you ask your RAG "How is Person A connected to Project B through their shared dependencies?", standard vector search fails because the answer isn't in a single chunk—it’s in the **links** between them.
 
-**Postgres Graph RAG** bridges this "Reasoning Gap" by turning your existing PostgreSQL database into a structured knowledge engine. 
+**Postgres Graph RAG** bridges this reasoning gap by turning your existing PostgreSQL database into a structured knowledge engine. 
 
 ### Why this exists:
 1.  **Infrastructure Nightmare:** Building "Smart RAG" usually means adding a Graph DB (Neo4j) to your stack. Now you have a distributed systems nightmare: keeping your Relational DB, Vector DB, and Graph DB in sync.
@@ -137,19 +137,39 @@ res = await rag.query("What is my key?", namespace="user_a") # Returns 123
 
 ---
 
-## Features under the Hood
+## 🗺️ Roadmap & Future Vision
 
-- **Forever Schema:** Uses `graph_nodes` and `graph_edges` with JSONB metadata. No `ALTER TABLE` Akrobatik needed for future metadata fields.
-- **Connection Pooling:** Uses `psycopg_pool.AsyncConnectionPool` for high-concurrency performance.
-- **Cycle Detection:** The recursive CTE uses a `visited` array to prevent infinite loops in complex graphs.
-- **Atomic JSONB Merges:** Metadata is merged using the Postgres `||` operator during ingestion, preserving historical data.
+This project follows the **"Postgres Maximalism"** philosophy: Stop building new infrastructure and start using the full power of the database you already own.
+
+### ✅ Phase 1: Foundation (Current Release)
+- [x] **Postgres-Native Schema:** Migration-proof design using JSONB and namespacing.
+- [x] **Recursive Reasoning:** Multi-hop graph traversal implemented via SQL Recursive CTEs.
+- [x] **Incremental Ingestion:** Atomic upserts for nodes and edges (no expensive batch rebuilds).
+- [x] **Hosted SLM Extraction:** Native support for OpenAI and Google Gemini for high-speed, low-cost tagging.
+- [x] **Async Architecture:** Production-ready with high-performance connection pooling.
+
+### 🏗️ Phase 2: High-Precision Retrieval (Next Up)
+
+- [ ] **Hybrid Search (BM25 + Vector):** Integrate Postgres Full-Text Search with `pgvector`. Keyword precision meets semantic depth.
+- [ ] **Advanced Entity Resolution (ER):** Automatic merging of similar entities (e.g., "Elon" and "Elon Musk") using `pg_trgm` fuzzy matching and vector distance during ingestion.
+- [ ] **Relationship Scoring:** Dynamic edge weighting based on mention frequency and extraction confidence scores.
+- [ ] **Metadata Pruning:** Filter graph paths based on metadata (e.g., "Only traverse relationships from documents updated in the last 90 days").
+
+### 📊 Phase 3: Global Intelligence & Scaling
+
+- [ ] **SQL-Native Community Detection:** Implement clustering algorithms directly in SQL to identify thematic communities (a lightweight alternative to Leiden).
+- [ ] **Global Summarization:** Automated summary generation for clusters to answer "What are the key trends across these 10,000 documents?".
+- [ ] **Graph Observability:** Built-in tracing to visualize the "Reasoning Path"—showing exactly why the agent connected Node A to Node C.
+
+### 🛡️ Phase 4: Enterprise & Agentic Features
+
+- [ ] **Agent Identity & Auth (Signal #1):** Integration with Postgres Row-Level Security (RLS) to ensure agents only traverse paths the specific user is authorized to see.
+- [ ] **MCP Server Support:** Native Model Context Protocol implementation so `pg-graph-rag` can be used as a direct tool in Claude, Cursor, and other IDEs.
+- [ ] **Telemetry & Usage Analytics:** Per-namespace token tracking and latency monitoring for cost-conscious scaling.
 
 ---
 
-## Dependencies
-- `psycopg[pool]`
-- `pgvector`
-- `openai`
-- `google-genai`
-- `pandas`
-- `pydantic`
+### 💡 User-Driven Priorities
+We prioritize features that reduce **Operational Overhead**. If you need a feature that further consolidates the "Standard Stack" (Vector + Graph + Relational) into Postgres, open an issue!
+
+**Launch Status:** 🚀 MVP is live. Focus is now on **Hybrid Search** and **Automatic Entity Resolution**.
