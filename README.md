@@ -29,12 +29,6 @@ This library is built for **Postgres Maximalists**. It leverages the engine you 
 
 ## Installation
 
-Using `uv` (recommended):
-```bash
-uv sync --extra test
-```
-
-Or using `pip`:
 ```bash
 pip install postgres-graph-rag
 ```
@@ -173,3 +167,17 @@ This project follows the **"Postgres Maximalism"** philosophy: Stop building new
 We prioritize features that reduce **Operational Overhead**. If you need a feature that further consolidates the "Standard Stack" (Vector + Graph + Relational) into Postgres, open an issue!
 
 **Launch Status:** 🚀 MVP is live. Focus is now on **Hybrid Search** and **Automatic Entity Resolution**.
+
+---
+
+## Development
+
+If you want to contribute or run the tests locally:
+
+```bash
+# Clone the repo and sync dependencies
+uv sync --extra test
+
+# Run tests
+uv run pytest
+```
