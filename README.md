@@ -1,4 +1,4 @@
-# Postgres Graph RAG 🐘🕸️
+# postgres-graph-rag 🐘🕸️
 
 ### High-Precision GraphRAG. Native to PostgreSQL.
 
