@@ -1,4 +1,4 @@
-# postgres-graph-rag (The Lean MVP)
+# postgres-graph-rag
 
 A high-performance, Postgres-native GraphRAG library. No complex orchestration frameworks—just pure Python and SQL.
 
