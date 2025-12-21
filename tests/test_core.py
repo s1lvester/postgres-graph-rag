@@ -33,11 +33,17 @@ def test_ingest(rag, mock_db_class, mock_extractor_class):
     mock_extractor.get_embedding.return_value = [0.1] * 1536
     mock_db.upsert_node.side_effect = ["uuid1", "uuid2"]
 
-    rag.ingest("Apple released the M4.")
+    rag.ingest("Apple released the M4.", namespace="test-ns")
 
     mock_extractor.extract_triplets.assert_called_once()
     assert mock_db.upsert_node.call_count == 2
-    mock_db.upsert_edge.assert_called_once_with("uuid1", "uuid2", "released")
+    # Verify namespace is passed
+    mock_db.upsert_node.assert_any_call(
+        "Apple", [0.1] * 1536, namespace="test-ns", metadata=None
+    )
+    mock_db.upsert_edge.assert_called_once_with(
+        "uuid1", "uuid2", "released", namespace="test-ns", metadata=None
+    )
 
 
 def test_query(rag, mock_db_class, mock_extractor_class):
@@ -52,15 +58,20 @@ def test_query(rag, mock_db_class, mock_extractor_class):
         ],
         "edges": [
             {
-                "source_id": "uuid1",
-                "target_id": "uuid2",
+                "source_node_id": "uuid1",
+                "target_node_id": "uuid2",
                 "relation": "released",
                 "source_content": "Apple",
                 "target_content": "M4",
+                "weight": 1.0,
             }
         ],
     }
 
-    context = rag.query("What did Apple release?")
+    context = rag.query("What did Apple release?", namespace="test-ns")
+
+    mock_db.vector_search.assert_called_once_with(
+        [0.1] * 1536, namespace="test-ns", top_k=5
+    )
     assert "Apple" in context
     assert "M4" in context

@@ -38,15 +38,28 @@ class TestIntegration:
     def _run_e2e_flow(self, rag, provider_name):
         with rag.db._get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("DROP TABLE IF EXISTS edges CASCADE")
-                cur.execute("DROP TABLE IF EXISTS nodes CASCADE")
+                cur.execute("DROP TABLE IF EXISTS graph_edges CASCADE")
+                cur.execute("DROP TABLE IF EXISTS graph_nodes CASCADE")
                 conn.commit()
 
         rag.setup()
+
+        namespace = f"test-{provider_name.lower()}"
         test_text = f"The {provider_name} team developed a new RAG system. This system uses Postgres."
-        rag.ingest(test_text)
+
+        # Ingest with namespace
+        rag.ingest(test_text, namespace=namespace)
+
+        # Query with same namespace
         context = rag.query(
-            f"What did the {provider_name} team develop?", hops=2
+            f"What did the {provider_name} team develop?",
+            namespace=namespace,
+            hops=2,
         )
+
         assert provider_name in context
         assert "Postgres" in context
+
+        # Verify other namespace is empty
+        empty_context = rag.query("Any team?", namespace="other-empty-ns")
+        assert "No relevant context found" in empty_context

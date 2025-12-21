@@ -1,11 +1,12 @@
-# postgres-graph-rag
+# Postgres Graph RAG (The Lean MVP)
 
-A high-performance, Postgres-native GraphRAG library. No complex orchestration frameworks—just pure Python and SQL.
+A high-performance, Postgres-native GraphRAG library using a migration-safe "Forever Schema". No complex orchestration frameworks—just pure Python and SQL.
 
 ## Core Philosophy
 - **Infrastructure:** Postgres is the only database (via `pgvector`).
 - **Intelligence:** Hosted SLMs (GPT-5.2 or Gemini 2.5) for extraction.
 - **Simplicity:** Pure Python + SQL.
+- **Scalability:** Namespace-aware design (Multi-tenancy) and JSONB metadata.
 
 ## Installation
 
@@ -34,36 +35,36 @@ from postgres_graph_rag import PostgresGraphRAG
 rag = PostgresGraphRAG(
     postgres_url="postgresql://user:password@localhost:5432/dbname",
     openai_api_key="your_openai_key"
-    # model defaults to gpt-5-nano-2025-08-07
 )
 
-# Or for Gemini
-rag = PostgresGraphRAG(
-    postgres_url="your_dsn",
-    google_api_key="your_key"
-    # model defaults to gemini-2.5-flash-lite
-)
-
-# 1. Setup DB (Creates tables and extensions)
+# 1. Setup DB (Creates the "Forever Schema" tables)
 rag.setup()
 
-# 2. Ingest
-rag.ingest("Apple's hardware team, led by Johny Srouji, designed the M4 chip.")
+# 2. Ingest (with optional namespace/multi-tenancy)
+rag.ingest(
+    "Apple's hardware team, led by Johny Srouji, designed the M4 chip.",
+    namespace="project_alpha"
+)
 
-# 3. Query (Returns graph-enriched context)
-context = rag.query("Who leads the team that made the M4?", hops=2)
+# 3. Query (Returns graph-enriched context from specific namespace)
+context = rag.query(
+    "Who leads the team that made the M4?", 
+    namespace="project_alpha",
+    hops=2
+)
 print(context)
 ```
 
 ## Features
-- **Atomic Upserts:** Uses `ON CONFLICT` logic to ensure entity names are unique.
-- **Recursive Traversal:** Uses a Postgres Recursive CTE for efficient N-hop neighbor discovery with cycle detection.
-- **Structured Extraction:** Uses OpenAI Structured Outputs and Google GenAI Controlled Generation for reliable triplet extraction.
+- **Forever Schema:** Uses `graph_nodes` and `graph_edges` with JSONB metadata. No `ALTER TABLE` needed for future features.
+- **Multi-Tenancy:** First-class support for `namespace` to separate data (e.g., per user or per project).
+- **Atomic Upserts:** Uses `ON CONFLICT` with JSONB merging (`||`) for reliable data ingestion.
+- **Recursive Traversal:** Optimized Postgres Recursive CTE for efficient N-hop neighbor discovery with cycle detection.
 
 ## Database Schema
 The library manages two tables:
-- `nodes`: Stores entities, their metadata, and embeddings.
-- `edges`: Stores relationships between entities.
+- `graph_nodes`: Stores entities, namespaces, embeddings, and flexible JSONB metadata.
+- `graph_edges`: Stores relationships, namespaces, weights, and JSONB metadata.
 
 ## Dependencies
 - `psycopg3`
