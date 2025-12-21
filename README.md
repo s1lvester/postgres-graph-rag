@@ -2,7 +2,7 @@
 
 ### High-Precision GraphRAG. Native to PostgreSQL.
 
-Most RAG systems are "Flatlanders." They use vector similarity to find related text, but they are fundamentally blind to **relationships**. If you ask your RAG "How is Person A connected to Project B through their shared dependencies?", standard vector search fails because the answer isn't in a single chunk—it’s in the **links** between them.
+Most RAG systems are Flatlanders. They use vector similarity to find related text, but they are fundamentally blind to **relationships**. If you ask your RAG "How is Person A connected to Project B through their shared dependencies?", standard vector search fails because the answer isn't in a single chunk—it’s in the **links** between them.
 
 **Postgres Graph RAG** bridges this reasoning gap by turning your existing PostgreSQL database into a structured knowledge engine. 
 
