@@ -1,3 +1,6 @@
+
+> 🏗️ Early version. Interface can evolve quickly. **Star** the repo to be updated about new changes, as we work our way through the [roadmap](https://github.com/h4gen/postgres-graph-rag?tab=readme-ov-file#%EF%B8%8F-roadmap--future-vision).
+
 # postgres-graph-rag 🐘🕸️
 
 ### High-Precision GraphRAG. Native to PostgreSQL.
