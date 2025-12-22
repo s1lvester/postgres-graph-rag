@@ -71,69 +71,85 @@ class PostgresGraphRAG:
         namespace: str = "default",
         metadata: Optional[Dict[str, Any]] = None,
     ):
-        """Ingests one or more texts into a specific namespace."""
+        """
+        Ingests one or more texts into a specific namespace.
+        Optimized to use parallel extraction and batch embeddings.
+        """
         if isinstance(texts, str):
             texts = [texts]
 
+        # 1. Extraction (Parallel across all texts and chunks)
+        all_chunks = []
         for text in texts:
-            chunks = self.chunker(text)
-            for chunk in chunks:
-                # 1. Extraction (per chunk)
-                triplets = await self.extractor.extract_triplets(chunk)
-                if not triplets:
-                    continue
+            all_chunks.extend(self.chunker(text))
 
-                # 2. Collect unique entities in this chunk
-                entities = set()
-                for t in triplets:
-                    entities.add(t.subject)
-                    entities.add(t.object)
+        extraction_tasks = [
+            self.extractor.extract_triplets(c) for c in all_chunks
+        ]
+        all_triplets_lists = await asyncio.gather(*extraction_tasks)
 
-                # 3. Parallel Embedding Retrieval
-                entity_list = list(entities)
-                embedding_tasks = [
-                    self.extractor.get_embedding(e) for e in entity_list
-                ]
-                embeddings = await asyncio.gather(*embedding_tasks)
-                entity_to_emb = dict(zip(entity_list, embeddings))
+        # Flatten and deduplicate entities
+        all_triplets = []
+        unique_entities = set()
+        for triplets in all_triplets_lists:
+            if not triplets:
+                continue
+            for t in triplets:
+                all_triplets.append(t)
+                unique_entities.add(t.subject)
+                unique_entities.add(t.object)
 
-                # 4. Batch DB Write
-                await self.db._init_pool()
-                async with self.db.pool.connection() as conn:
-                    # Prepare nodes for batch upsert
-                    nodes_data = [
-                        {
-                            "content": entity,
-                            "embedding": entity_to_emb[entity],
-                            "metadata": metadata,
-                        }
-                        for entity in entity_list
-                    ]
+        if not unique_entities:
+            return
 
-                    # Upsert nodes and get their IDs
-                    node_ids_list = await self.db.upsert_nodes_batch(
-                        nodes_data, namespace=namespace, connection=conn
-                    )
-                    content_to_id = dict(zip(entity_list, node_ids_list))
+        # 2. Batch Embedding Retrieval
+        entity_list = list(unique_entities)
+        embeddings = await self.extractor.get_embedding(entity_list)
+        entity_to_emb = dict(zip(entity_list, embeddings))
 
-                    # Prepare edges for batch upsert
-                    edges_data = [
-                        {
-                            "source_id": content_to_id[t.subject],
-                            "target_id": content_to_id[t.object],
-                            "relation": t.predicate,
-                            "metadata": metadata,
-                        }
-                        for t in triplets
-                    ]
+        # 3. Batch DB Write
+        await self.db._init_pool()
+        async with self.db.pool.connection() as conn:
+            # Prepare nodes for batch upsert
+            nodes_data = [
+                {
+                    "content": entity,
+                    "embedding": entity_to_emb[entity],
+                    "metadata": metadata,
+                }
+                for entity in entity_list
+            ]
 
-                    # Upsert edges
-                    await self.db.upsert_edges_batch(
-                        edges_data, namespace=namespace, connection=conn
-                    )
+            # Upsert nodes and get their IDs
+            node_ids_list = await self.db.upsert_nodes_batch(
+                nodes_data, namespace=namespace, connection=conn
+            )
+            content_to_id = dict(zip(entity_list, node_ids_list))
 
-                    # Commit the whole chunk in one transaction
-                    await conn.commit()
+            # Prepare edges for batch upsert
+            edges_data = [
+                {
+                    "source_id": content_to_id[t.subject],
+                    "target_id": content_to_id[t.object],
+                    "relation": t.predicate,
+                    "metadata": metadata,
+                }
+                for t in all_triplets
+            ]
+
+            # Upsert edges
+            await self.db.upsert_edges_batch(
+                edges_data, namespace=namespace, connection=conn
+            )
+
+            # Commit the whole batch in one transaction
+            await conn.commit()
+
+    async def _process_single_text(
+        self, text: str, namespace: str, metadata: Optional[Dict[str, Any]]
+    ):
+        """Deprecated: Internal helper to process a single text blob (extraction -> embedding -> db)."""
+        await self.add_texts([text], namespace=namespace, metadata=metadata)
 
     async def query(
         self,
@@ -143,7 +159,15 @@ class PostgresGraphRAG:
         top_k: int = 5,
     ) -> str:
         """Searches the graph and returns enriched context."""
+        # get_embedding returns List[float] when given a string
         query_emb = await self.extractor.get_embedding(question)
+        if (
+            isinstance(query_emb, list)
+            and query_emb
+            and isinstance(query_emb[0], list)
+        ):
+            # This should not happen since question is a string, but for type safety:
+            query_emb = query_emb[0]
 
         await self.db._init_pool()
         async with self.db.pool.connection() as conn:

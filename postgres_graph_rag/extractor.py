@@ -86,18 +86,35 @@ class LLMExtractor:
             return response.parsed.triplets
         return []
 
-    async def get_embedding(self, text: str) -> List[float]:
+    async def get_embedding(
+        self, text: str | List[str]
+    ) -> List[float] | List[List[float]]:
+        """
+        Retrieves embeddings for one or more texts.
+        Returns a single list of floats if a single string is provided,
+        or a list of lists if a list of strings is provided.
+        """
         model = self.config["embedding_model"]
+        is_list = isinstance(text, list)
+        input_texts = text if is_list else [text]
+
         if self.openai_client and "text-embedding" in model:
-            response = await self.openai_client.embeddings.create(
-                input=text, model=model
+            # We use a separate variable to help the type checker
+            openai_resp = await self.openai_client.embeddings.create(
+                input=input_texts, model=model
             )
-            return response.data[0].embedding
+            embeddings = [item.embedding for item in openai_resp.data]
+            return embeddings if is_list else embeddings[0]
+
         elif self.google_client and (
             "text-embedding" in model or "embedding" in model
         ):
-            response = await self.google_client.models.embed_content(
-                model=model, contents=text
+            # We use a separate variable to help the type checker
+            google_resp = await self.google_client.models.embed_content(
+                model=model, contents=input_texts
             )
-            return response.embeddings[0].values
+            # Google's embed_content returns an object with an 'embeddings' list
+            embeddings = [e.values for e in google_resp.embeddings]
+            return embeddings if is_list else embeddings[0]
+
         raise ValueError("API key missing or provider mismatch for embeddings.")

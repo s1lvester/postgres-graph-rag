@@ -19,6 +19,9 @@ dependencies = [
     "pandas>=2.2.0",
     "pydantic>=2.6.0",
     "python-dotenv>=1.0.1",
+    "networkx>=3.4.2",
+    "matplotlib>=3.10.8",
+    "ipykernel>=7.1.0",
 ]
 
 [project.optional-dependencies]

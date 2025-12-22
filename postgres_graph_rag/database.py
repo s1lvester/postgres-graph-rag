@@ -48,6 +48,29 @@ class DatabaseManager:
                 """
                 )
 
+                # Check if embedding dimension matches if table already existed
+                await cur.execute(
+                    """
+                    SELECT atttypmod 
+                    FROM pg_attribute 
+                    WHERE attrelid = 'graph_nodes'::regclass 
+                      AND attname = 'embedding'
+                """
+                )
+                row = await cur.fetchone()
+                if row:
+                    # atttypmod for vector(n) is exactly n
+                    # If using a tuple row factory, it will be row[0]
+                    existing_dim = (
+                        row["atttypmod"] if isinstance(row, dict) else row[0]
+                    )
+                    if existing_dim != embedding_dimension:
+                        raise ValueError(
+                            f"Database has 'graph_nodes.embedding' with dimension {existing_dim}, "
+                            f"but current config expects {embedding_dimension}. "
+                            "Please drop the table or use a compatible embedding model."
+                        )
+
                 # Create graph_edges table (The Relationships)
                 await cur.execute(
                     """
